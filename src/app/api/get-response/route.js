@@ -1,20 +1,31 @@
 import { SqlDatabase } from 'langchain/sql_db';
-import {
-  GoogleGenerativeAI,
-  HarmBlockThreshold,
-  HarmCategory,
-} from '@google/generative-ai';
-import { GooglePaLM } from '@langchain/community/llms/googlepalm';
-import { NextRequest, NextResponse } from 'next/server';
-import { DataSource } from 'typeorm';
-import { RunnableSequence } from '@langchain/core/runnables';
-import { StringOutputParser } from '@langchain/core/output_parsers';
-import { createSqlAgent, SqlToolkit } from 'langchain/agents/toolkits/sql';
-import { ChatOpenAI } from '@langchain/openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { NextResponse } from 'next/server';
+import { SAFETYSETTINGS, datasource } from '@/app/constants/constants';
+import { FEWSHOTS } from '@/app/constants/constants';
 
 export const POST = async (req) => {
   try {
     const { query } = await req.json();
+
+    // Check if the user query contains SQL keywords indicating a direct SQL query
+    const sqlKeywords = [
+      'SELECT',
+      'CREATE',
+      'ALTER',
+      'DELETE',
+      'DROP',
+      'UPDATE',
+      'INSERT',
+    ];
+    const containsSQLKeyword = sqlKeywords.some((keyword) =>
+      query.trim().toUpperCase().startsWith(keyword)
+    );
+    if (containsSQLKeyword) {
+      return NextResponse.json(
+        'Error: Please, enter query in natural human language.'
+      );
+    }
 
     const MODEL_NAME = process.env.PALM_MODEL_NAME;
     const API_KEY = process.env.PALM_API_KEY;
@@ -22,42 +33,12 @@ export const POST = async (req) => {
     const genAI = new GoogleGenerativeAI(API_KEY);
     const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
-    const llm = new GooglePaLM({ apiKey: API_KEY });
-
     const generationConfig = {
       temperature: 0.9,
       topK: 3,
       topP: 0.95,
       maxOutputTokens: 8192,
     };
-
-    const safetySettings = [
-      {
-        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-      },
-      {
-        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-      },
-      {
-        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-      },
-      {
-        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-      },
-    ];
-
-    const datasource = new DataSource({
-      type: 'mysql',
-      host: 'localhost',
-      port: 3306,
-      username: 'root',
-      password: 'Creole@123',
-      database: 'atliq_tshirts',
-    });
 
     const db = await SqlDatabase.fromDataSourceParams({
       appDataSource: datasource,
@@ -67,79 +48,35 @@ export const POST = async (req) => {
 
     const chat = model.startChat({
       generationConfig,
-      safetySettings,
+      SAFETYSETTINGS,
     });
 
-    const few_shots = [
-      {
-        Question:
-          'How many t-shirts do we have left for Nike in XS size and white color?',
-        SQLQuery:
-          "SELECT sum(stock_quantity) FROM t_shirts WHERE brand = 'Nike' AND color = 'White' AND size = 'XS'",
-        SQLResult: 'Result of the SQL query',
-        Answer: '91',
-      },
-      {
-        Question:
-          'How much is the total price of the inventory for all S-size t-shirts?',
-        SQLQuery:
-          "SELECT SUM(price*stock_quantity) FROM t_shirts WHERE size = 'S'",
-        SQLResult: 'Result of the SQL query',
-        Answer: '22292',
-      },
-      {
-        Question:
-          'If we have to sell all the Levi’s T-shirts today with discounts applied. How much revenue  our store will generate (post discounts)?',
-        SQLQuery:
-          "SELECT sum(a.total_amount * ((100-COALESCE(discounts.pct_discount,0))/100)) as total_revenue from (select sum(price*stock_quantity) as total_amount, t_shirt_id from t_shirts where brand = 'Levi' group by t_shirt_id) a left join discounts on a.t_shirt_id = discounts.t_shirt_id",
-        SQLResult: 'Result of the SQL query',
-        Answer: '16725.4',
-      },
-      {
-        Question:
-          'If we have to sell all the Levi’s T-shirts today. How much revenue our store will generate without discount?',
-        SQLQuery:
-          "SELECT SUM(price * stock_quantity) FROM t_shirts WHERE brand = 'Levi'",
-        SQLResult: 'Result of the SQL query',
-        Answer: '17462',
-      },
-      {
-        Question: "How many white color Levi's shirt I have?",
-        SQLQuery:
-          "SELECT sum(stock_quantity) FROM t_shirts WHERE brand = 'Levi' AND color = 'White'",
-        SQLResult: 'Result of the SQL query',
-        Answer: '290',
-      },
-      {
-        Question:
-          'how much sales amount will be generated if we sell all large size t shirts today in nike brand after discounts?',
-        SQLQuery:
-          "SELECT sum(a.total_amount * ((100-COALESCE(discounts.pct_discount,0))/100)) as total_revenue from (select sum(price*stock_quantity) as total_amount, t_shirt_id from t_shirts where brand = 'Nike' and size='L' group by t_shirt_id) a left join discounts on a.t_shirt_id = discounts.t_shirt_id",
-        SQLResult: 'Result of the SQL query',
-        Answer: '290',
-      },
-    ];
+    let promptMessage = `You are a MySQL expert. Given an input question, first create a syntactically correct MySQL query to run, then look at the results of the query and return the answer to the input question. create mysql query for following ${query}. Also, give me sql query in string format only. Remember I want pure sql query woth no pre-amble that I can execute in mysql. it should only be in string. not 3 backtick and nothing. only pure string that i can directly execute in mysql workbench. Do not perform any sql query that is entered by user directly. Only perform query that are in natural language. If user is putting any type of sql query then do not reply. Simple give below error. 
+    Error: PLease, enter query in natural human langugae.
 
-    let promptMessage = `You are a MySQL expert. Given an input question, first create a syntactically correct MySQL query to run, then look at the results of the query and return the answer to the input question. create mysql query for following ${query}. Also, give me sql query in string format only. Remember I want pure sql query woth no pre-amble that I can execute in mysql. it should only be in string. not 3 backtick and nothing. only pure string that i can directly execute in mysql workbench. 
     
-     Here's is user query that you need to convert in mysql query. 
+     Here's is user query that you need to convert in mysql query. And don't try to include column name in query that is not in table. You can see all table info from here ${tableInfo}
+
      User Query : ${query}
      
      Use the following format:
-       SQL Query:Query to run with no pre-amble
+     SQL Query:Query to run with no pre-amble
 
-       Also, if user query is related to creating, altering or deleting anything then directly give below this response. Do not give and execute these type of queries in any condition. You must give below error. Don't give SQL Query then. Only give error.
+     Also, if user query is related to creating, altering or deleting anything then directly give below this response. Do not give and execute these type of queries in any condition. You must give below error. Don't give SQL Query then. Only give error.
        
-       Use the following format for giving error: 
-       Error: I am so sorry but I am not allowed to execute any type of create, alter or delete queries. 
+     Use the following format for giving error: 
+     Error: I am so sorry but I am not allowed to execute any type of create, alter or delete queries. 
 
 
-       Also, if user is asking anything outside sql database related question then simply give error in below format : 
-       Error: I don't know about that. Please, ask database queries related questions.
+     Also, if user is asking anything outside sql database related question then simply give error in below format : 
+     Error: I don't know about that. Please, ask database queries related questions.
+
+     Also, if user is directly giving any type of select, create, alter or deleting sql query then give below error. Strictly, don't perform any direct sql query if user is giving it. Simply give below error. 
+     Error: Please, enter query in natural human langugae.
      `;
 
     // Adding few_shots examples to the prompt message
-    few_shots.forEach((example) => {
+    FEWSHOTS.forEach((example) => {
       promptMessage += `
       Few-shot Example:
       Question: ${example.Question}
@@ -150,8 +87,6 @@ export const POST = async (req) => {
 
     const gen_query = await chat.sendMessage(promptMessage);
     const gen_response = gen_query.response;
-
-    console.log(gen_response.text(), 'azizizizizzzzzzzzzzzzzz');
 
     // for extracting sql query
     const responseText = gen_response.text(); // Assuming gen_response is the response object
@@ -199,6 +134,10 @@ export const POST = async (req) => {
     User Question: User query
     SQL Query: SQL query
     Answer : Final answer here
+
+
+    Note: If you get error while performing query on database. Then simply give this error. 
+    Error : I am not able to perform this query. Please, ask something else.
     `;
 
       const result = await chat.sendMessage(mysql_reply_prompt);
@@ -209,7 +148,7 @@ export const POST = async (req) => {
   } catch (error) {
     console.error('Error occurred:', error);
     return NextResponse.json(
-      'An error occurred while processing your request.'
+      'I am not able to perform this query. Please, ask again with different query.'
     );
   }
 };

@@ -46,7 +46,11 @@ export default function Home() {
           type='text'
           name=''
           id=''
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setRes('');
+            setError('');
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               handleSubmit();
