@@ -43,8 +43,6 @@ SQL Query: SQL query
 Answer : Final answer here`;
 
 
-export const MYSQLREPLYPROMPT33 = `You are an expert in converting mysql answers in layman language. So, any human can understand in simple language. You will be given what user    
-  originally asked then converted sql query and then the answer. So, from user's asked query you need to give answer in simple language that you receive from database. If you don't know the answer. Simply say "I don't know the answer. Please, try again." Don't try to make up an answer. 
 
 Here's the example on what you need to do everytime. 
 Example: 
