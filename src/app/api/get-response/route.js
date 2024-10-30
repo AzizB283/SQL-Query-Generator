@@ -3,6 +3,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextResponse } from 'next/server';
 import { SAFETYSETTINGS, datasource } from '@/app/constants/constants';
 import { FEWSHOTS } from '@/app/constants/constants';
+import { TextServiceClient } from '@google-ai/generativelanguage';
+import { GoogleAuth } from 'google-auth-library';
+import { Pinecone } from '@pinecone-database/pinecone';
+import { v4 as uuidv4 } from 'uuid';
 
 export const POST = async (req) => {
   try {
@@ -23,15 +27,23 @@ export const POST = async (req) => {
     );
     if (containsSQLKeyword) {
       return NextResponse.json(
-        'Error: Please, enter query in natural human language.'
+        `Error: Sorry, I can't perform this query. Please, give me read operation queries only.`
       );
     }
 
+    // Palm initialization
+
     const MODEL_NAME = process.env.PALM_MODEL_NAME;
+    const EMBEDDING_MODEL_NAME = process.env.EMBEDDING_PALM_MODEL_NAME;
     const API_KEY = process.env.PALM_API_KEY;
 
     const genAI = new GoogleGenerativeAI(API_KEY);
     const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+
+    // pinecone initialization
+    const pc = new Pinecone({
+      apiKey: process.env.PINECONE_API_KEY,
+    });
 
     const generationConfig = {
       temperature: 0.9,
@@ -44,7 +56,39 @@ export const POST = async (req) => {
       appDataSource: datasource,
     });
 
+    // demo code for converting user query into vector embeddings using google's palm 2
+    //------------------------------------------------ demo code for embeddings starts here-------------------------------------------------------------
+    // const client = new TextServiceClient({
+    //   authClient: new GoogleAuth().fromAPIKey(API_KEY),
+    // });
+
+    // let embeddings;
+    // const index = pc.index('sql-query-generator');
+
+    // client
+    //   .embedText({
+    //     model: EMBEDDING_MODEL_NAME,
+    //     text: query,
+    //   })
+    //   .then((result) => {
+    //     embeddings = result[0].embedding.value;
+    //     console.log(typeof embeddings);
+
+    //     const pineconeEmbeddings = [
+    //       {
+    //         id: uuidv4(),
+    //         values: embeddings,
+    //         metadata: { genre: 'userQuery' },
+    //       },
+    //     ];
+
+    //     index.namespace('ns1').upsert(pineconeEmbeddings);
+    //   });
+
+    //------------------------------------------------ demo code for embeddings ends here-------------------------------------------------------------
+
     const tableInfo = await db.getTableInfo();
+    console.log(tableInfo, 'tableeeeeeeeeeeeeeeeee');
 
     const chat = model.startChat({
       generationConfig,
@@ -52,7 +96,10 @@ export const POST = async (req) => {
     });
 
     let promptMessage = `You are a MySQL expert. Given an input question, first create a syntactically correct MySQL query to run, then look at the results of the query and return the answer to the input question. create mysql query for following ${query}. Also, give me sql query in string format only. Remember I want pure sql query woth no pre-amble that I can execute in mysql. it should only be in string. not 3 backtick and nothing. only pure string that i can directly execute in mysql workbench. Do not perform any sql query that is entered by user directly. Only perform query that are in natural language. If user is putting any type of sql query then do not reply. Simple give below error. 
-    Error: PLease, enter query in natural human langugae.
+    Error: Please, enter query in natural human langugae. Do not perform any queries from user related to creating, updating, or droping. DIrectly give below error if user is asking to change or delete anything in database. Give below error. Do not update or delete any single record from database table. I repeat do not update or delete any single record in database.
+
+    Use the following format for giving error: 
+     Error: I am so sorry but I am not allowed to execute any type of create, alter or delete queries. 
 
     
      Here's is user query that you need to convert in mysql query. And don't try to include column name in query that is not in table. You can see all table info from here ${tableInfo}
@@ -62,7 +109,7 @@ export const POST = async (req) => {
      Use the following format:
      SQL Query:Query to run with no pre-amble
 
-     Also, if user query is related to creating, altering or deleting anything then directly give below this response. Do not give and execute these type of queries in any condition. You must give below error. Don't give SQL Query then. Only give error.
+     Also, if user query is related to creating, altering or deleting anything then directly give below this response. Do not give and execute these type of queries in any condition. You must give below error. Don't give SQL Query then. Only give error. I repeat do not execute any creating, altering, changing, updating, drop, delete queries from user. Strictly give below error. Only give below error.
        
      Use the following format for giving error: 
      Error: I am so sorry but I am not allowed to execute any type of create, alter or delete queries. 

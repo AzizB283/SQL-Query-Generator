@@ -14,6 +14,7 @@
     "@langchain/community": "^0.0.53",
     "@langchain/core": "^0.1.61",
     "@langchain/openai": "^0.0.28",
+    "@pinecone-database/pinecone": "^2.2.0",
     "axios": "^1.6.8",
     "google-auth-library": "^8.9.0",
     "langchain": "^0.1.36",
@@ -22,7 +23,8 @@
     "react": "^18",
     "react-dom": "^18",
     "sqlite3": "^5.1.7",
-    "typeorm": "^0.3.20"
+    "typeorm": "^0.3.20",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "postcss": "^8",
